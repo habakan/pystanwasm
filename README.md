@@ -44,14 +44,15 @@ built wheel: linear regression, logistic regression, a hierarchical model
 (eight schools), and `sampling_parallel` timed against sequential sampling.
 
 **[habakan.github.io/pystanwasm/marimo](https://habakan.github.io/pystanwasm/marimo/)**
-— the same bridge inside a [marimo](https://marimo.io/) WASM notebook.
-marimo runs Pyodide in a dedicated Web Worker the same way JupyterLite does,
-so nothing in `pystanwasm` itself is JupyterLite-specific; the one
-host-dependent piece is finding the site's own base URL from inside that
-worker (`self.location.origin` alone breaks under a project-site subpath —
-see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is why both demos are
-deployed at a real subpath (`/pystanwasm/` and `/pystanwasm/marimo/`)
-rather than each getting its own site.
+— the same four demos, one [marimo](https://marimo.io/) WASM notebook each
+(marimo exports one static bundle per notebook, so each gets its own
+`/marimo/<slug>/`). marimo runs Pyodide in a dedicated Web Worker the same
+way JupyterLite does, so nothing in `pystanwasm` itself is JupyterLite-
+specific; the one host-dependent piece is finding the site's own base URL
+from inside that worker (`self.location.origin` alone breaks under a
+project-site subpath — see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is
+why both demos are deployed at a real subpath (`/pystanwasm/` and
+`/pystanwasm/marimo/`) rather than each getting its own site.
 
 `make marimo-build`/`make pages-build` need [`uv`](https://github.com/astral-sh/uv)
 on `PATH` — `marimo export html-wasm` shells out to it to resolve the
@@ -60,7 +61,7 @@ notebook's imports.
 ```bash
 make setup           # npm install + a venv with jupyterlite-core, marimo, build, etc.
 make jupyterlite      # build the pystanwasm wheel, then serve JupyterLite at http://127.0.0.1:8000
-make marimo-build     # build the marimo demo into examples/marimo/_output
+make marimo-build     # build the 4 marimo demos into examples/marimo/_output
 make pages-build      # both, combined into dist/ (JupyterLite at /, marimo at /marimo/) -- what CI ships
 ```
 

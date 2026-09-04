@@ -1,6 +1,7 @@
 VENV := $(CURDIR)/.venv
-MARIMO_NB := examples/marimo/pystanwasm_demo.py
-MARIMO_OUT := examples/marimo/_output
+MARIMO_DIR := examples/marimo
+MARIMO_OUT := $(MARIMO_DIR)/_output
+MARIMO_NOTEBOOKS := linear_regression logistic_regression eight_schools parallel_chains
 
 .PHONY: setup
 setup: ## Install npm + Python dependencies (run once)
@@ -25,12 +26,21 @@ jupyterlite: build-wheel copy-stanwasm ## Local JupyterLite dev server with the 
 jupyterlite-build: build-wheel copy-stanwasm ## Production build, into examples/jupyterlite/_output
 	cd examples/jupyterlite && $(VENV)/bin/jupyter lite build
 
+# Each of the 4 demo notebooks is its own marimo WASM export (one HTML
+# bundle per notebook, marimo's model), landing at /marimo/<slug>/; stanwasm
+# assets + the wheel are duplicated into each one since every export is a
+# self-contained static bundle. index.html ties them together at /marimo/.
 .PHONY: marimo-build
-marimo-build: build-wheel copy-stanwasm ## Production build of the marimo demo, into examples/marimo/_output
+marimo-build: build-wheel copy-stanwasm ## Production build of the marimo demos, into examples/marimo/_output
 	rm -rf $(MARIMO_OUT)
-	$(VENV)/bin/marimo export html-wasm $(MARIMO_NB) -o $(MARIMO_OUT) --mode run -f
-	cp -R examples/jupyterlite/files/stanwasm $(MARIMO_OUT)/stanwasm
-	cp examples/jupyterlite/files/pystanwasm-*.whl $(MARIMO_OUT)/
+	mkdir -p $(MARIMO_OUT)
+	for nb in $(MARIMO_NOTEBOOKS); do \
+	  slug=$$(echo $$nb | tr '_' '-'); \
+	  $(VENV)/bin/marimo export html-wasm $(MARIMO_DIR)/$$nb.py -o $(MARIMO_OUT)/$$slug --mode run -f; \
+	  cp -R examples/jupyterlite/files/stanwasm $(MARIMO_OUT)/$$slug/stanwasm; \
+	  cp examples/jupyterlite/files/pystanwasm-*.whl $(MARIMO_OUT)/$$slug/; \
+	done
+	cp $(MARIMO_DIR)/index.html $(MARIMO_OUT)/index.html
 
 .PHONY: pages-build
 pages-build: jupyterlite-build marimo-build ## Combined static site for GitHub Pages: JupyterLite at /, marimo at /marimo/
