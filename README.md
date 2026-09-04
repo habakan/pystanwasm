@@ -53,6 +53,10 @@ see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is why both demos are
 deployed at a real subpath (`/pystanwasm/` and `/pystanwasm/marimo/`)
 rather than each getting its own site.
 
+`make marimo-build`/`make pages-build` need [`uv`](https://github.com/astral-sh/uv)
+on `PATH` — `marimo export html-wasm` shells out to it to resolve the
+notebook's imports.
+
 ```bash
 make setup           # npm install + a venv with jupyterlite-core, marimo, build, etc.
 make jupyterlite      # build the pystanwasm wheel, then serve JupyterLite at http://127.0.0.1:8000
