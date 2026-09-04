@@ -46,7 +46,7 @@ jobs:
       # `marimo export html-wasm` shells out to uv to resolve the notebook's
       # imports; not installed by default on the runner.
       - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661 # v2.2.0
+      - uses: quarto-dev/quarto-actions/setup@8a96df13519ee81fd526f2dfca5962811136661b # v2.2.0
 
       - run: make setup
       - run: make pages-build
