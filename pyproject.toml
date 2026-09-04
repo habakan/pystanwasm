@@ -25,6 +25,11 @@ examples = [
     "jupyter_server",
     "build",
     "marimo",
+    # Quarto's `quarto render` shells out to a bundled jupyter.py helper (for
+    # front matter / kernel discovery, even though live-html's {pyodide}
+    # blocks execute client-side, not at render time) that needs these.
+    "pyyaml",
+    "jupyter",
 ]
 
 [tool.hatch.build.targets.wheel]

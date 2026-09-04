@@ -1,0 +1,86 @@
+---
+title: "Linear regression"
+format: live-html
+pyodide:
+  packages:
+    - micropip
+---
+
+Compile and sample a small linear regression with [`pystanwasm`](https://github.com/habakan/pystanwasm),
+via [Quarto Live](https://r-wasm.github.io/quarto-live/) -- interactive `{pyodide}` code blocks in an
+ordinary Quarto document. Same bridge as the other demos.
+
+Everything runs in a single block: Quarto Live tries to share Python state between separate `{pyodide}`
+blocks on a page by serializing the global namespace between them, which breaks once that namespace holds
+a live JS object reference (`pyodide.ffi.JsProxy`, unhashable/unpicklable) -- as `pystanwasm`'s bridge
+does internally to cache the loaded wasm module. A single block sidesteps that entirely.
+
+```{pyodide}
+#| autorun: true
+import json
+import micropip
+from pyodide.code import run_js
+
+# self.location.origin alone is wrong on a GitHub-Pages-style project site
+# (https://host/repo-name/) -- it omits "/repo-name". self.location.href
+# resolves to the *kernel worker's own* script URL, which does include it.
+# Quarto Live's worker lives under a per-document "<name>_files/libs/
+# quarto-contrib/" directory, so recovering the page's own directory needs
+# trimming back to the slash before that, not just slicing at a marker.
+site_base = run_js(
+    """
+    (() => {
+      const href = self.location.href;
+      const quarto = href.match(/^(.*)\\/[^\\/]+_files\\/libs\\/quarto-contrib\\//);
+      if (quarto) return quarto[1];
+      const markers = ["/extensions/", "/assets/"];
+      for (const marker of markers) {
+        const idx = href.indexOf(marker);
+        if (idx !== -1) return href.slice(0, idx);
+      }
+      return self.location.origin;
+    })()
+    """
+)
+
+wheel_url = site_base + "/pystanwasm-0.1.0-py3-none-any.whl"
+await micropip.install(wheel_url)
+
+import numpy as np
+import pystanwasm as stan
+
+print("pystanwasm", stan.__version__)
+
+stan_code = """
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  real beta;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta * x, sigma);
+}
+"""
+data = {"N": 5, "x": [1, 2, 3, 4, 5], "y": [2.1, 3.9, 6.2, 7.8, 10.1]}
+
+model = stan.StanModel(stan_code, stanwasm_path="/stanwasm/pkg/stanwasm.js")
+fit = await model.sampling(data=data, iter=2000, warmup=1000, seed=42)
+print("parameters:", fit.param_names)
+
+# fit.to_dataframe() is on the natural (constrained) scale -- sigma is
+# already positive here, not log-scale.
+beta = fit["beta"]
+print(f"beta: mean={beta.mean():.3f} sd={beta.std():.3f}")
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(5, 4))
+plt.hist(beta, bins=30)
+plt.title("beta posterior")
+plt.show()
+```

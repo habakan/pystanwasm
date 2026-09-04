@@ -1,0 +1,8 @@
+stanwasm
+pystanwasm-*.whl
+.quarto/
+*_files/
+/linear-regression.html
+/logistic-regression.html
+/eight-schools.html
+/parallel-chains.html

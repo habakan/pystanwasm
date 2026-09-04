@@ -44,9 +44,20 @@ _nested_worker_support = None  # None = not probed yet; cached per session after
 # host this list doesn't cover yet.
 _KNOWN_WORKER_MARKERS = ["/extensions/", "/assets/"]
 
+# Quarto Live is a fourth pattern that doesn't fit the simple "slice before
+# this marker" rule above: its worker lives at
+# `<page-dir>/<docname>_files/libs/quarto-contrib/live-runtime/pyodide-
+# worker.js` -- a *per-document* `<docname>_files` directory sits between
+# the page's own directory and the marker, so slicing at the marker alone
+# leaves that directory dangling. Matched separately, trimming back to the
+# last "/" before it.
+_QUARTO_WORKER_RE = r"^(.*)\/[^\/]+_files\/libs\/quarto-contrib\/"
+
 _SITE_BASE_JS = (
     "(() => {"
     "  const href = self.location.href;"
+    "  const quarto = href.match(" + json.dumps(_QUARTO_WORKER_RE) + ");"
+    "  if (quarto) return quarto[1];"
     "  const markers = " + json.dumps(_KNOWN_WORKER_MARKERS) + ";"
     "  for (const marker of markers) {"
     "    const idx = href.indexOf(marker);"

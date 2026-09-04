@@ -1,0 +1,115 @@
+---
+title: "Parallel chains via Web Workers"
+format: live-html
+pyodide:
+  packages:
+    - micropip
+---
+
+`sampling()` runs one chain inside the page's own Pyodide kernel worker -- a single thread.
+`StanModel.sampling_parallel(n_chains=...)` instead spawns one plain-JS Web Worker per chain (no Pyodide
+in them, just [stanwasm](https://github.com/habakan/stanwasm)'s wasm module loaded fresh in each), so
+multiple chains can run at once across whatever cores the browser gives them. Quarto Live's own Pyodide
+runs in a dedicated Web Worker too (confirmed the same way as the [JupyterLite](../)/[marimo](../marimo/)
+demos), so the Workers `sampling_parallel` spawns here aren't nested inside another Worker -- an easier
+case, same as the [PyScript](../pyscript/) demo.
+
+This needs nested-Worker support (a Worker spawning another Worker): current Chrome/Edge/Firefox, and
+Safari 16.4+ (March 2023). Where that's unavailable it falls back to running the chains one at a time
+through `sampling()` and prints a warning -- it never just fails.
+
+Everything runs in a single block -- see [`linear-regression.qmd`](linear-regression.html) for why.
+
+```{pyodide}
+#| autorun: true
+import json
+import time
+import micropip
+from pyodide.code import run_js
+
+site_base = run_js(
+    """
+    (() => {
+      const href = self.location.href;
+      const quarto = href.match(/^(.*)\\/[^\\/]+_files\\/libs\\/quarto-contrib\\//);
+      if (quarto) return quarto[1];
+      const markers = ["/extensions/", "/assets/"];
+      for (const marker of markers) {
+        const idx = href.indexOf(marker);
+        if (idx !== -1) return href.slice(0, idx);
+      }
+      return self.location.origin;
+    })()
+    """
+)
+
+wheel_url = site_base + "/pystanwasm-0.1.0-py3-none-any.whl"
+await micropip.install(wheel_url)
+
+import numpy as np
+import pystanwasm as stan
+
+print("pystanwasm", stan.__version__)
+
+rng = np.random.default_rng(7)
+N, K = 500, 10
+X = rng.normal(size=(N, K))
+beta_true = rng.normal(0, 2, size=K)
+alpha_true, sigma_true = 1.5, 1.2
+y = alpha_true + X @ beta_true + rng.normal(0, sigma_true, size=N)
+
+stan_code = """
+data {
+  int<lower=0> N;
+  int<lower=0> K;
+  matrix[N, K] X;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  vector[K] beta;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 5);
+  beta ~ normal(0, 5);
+  sigma ~ exponential(1);
+  y ~ normal(alpha + X * beta, sigma);
+}
+"""
+data = {"N": N, "K": K, "X": X.tolist(), "y": y.tolist()}
+N_CHAINS = 4
+
+model = stan.StanModel(stan_code, stanwasm_path="/stanwasm/pkg/stanwasm.js")
+
+t0 = time.perf_counter()
+sequential_fits = [
+    await model.sampling(data=data, iter=2000, warmup=1000, seed=42 + i)
+    for i in range(N_CHAINS)
+]
+sequential_time = time.perf_counter() - t0
+
+t1 = time.perf_counter()
+parallel_fits = await model.sampling_parallel(data=data, n_chains=N_CHAINS, iter=2000, warmup=1000)
+parallel_time = time.perf_counter() - t1
+
+print(f"sequential: {sequential_time:.2f}s for {N_CHAINS} chains")
+print(f"parallel:   {parallel_time:.2f}s for {N_CHAINS} chains")
+print(f"speedup:    {sequential_time / parallel_time:.1f}x")
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(5, 4))
+plt.bar(["sequential", "parallel"], [sequential_time, parallel_time], color=["tab:gray", "tab:blue"])
+plt.ylabel("wall-clock seconds")
+plt.title(f"{N_CHAINS} chains, sequential vs Worker-parallel")
+plt.show()
+
+# Sanity check: parallelizing changes nothing about what's being computed --
+# each chain is independent either way, just with a different seed.
+beta0_name = [n for n in sequential_fits[0].param_names if n.startswith("beta")][0]
+seq_means = [f[beta0_name].mean() for f in sequential_fits]
+par_means = [f[beta0_name].mean() for f in parallel_fits]
+print("sequential beta[0] means:", [round(m, 3) for m in seq_means])
+print("parallel   beta[0] means:", [round(m, 3) for m in par_means])
+```

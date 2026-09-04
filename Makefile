@@ -50,10 +50,28 @@ pyscript-build: build-wheel copy-stanwasm ## Stage stanwasm + the wheel next to 
 	cp -R examples/jupyterlite/files/stanwasm examples/pyscript/stanwasm
 	cp examples/jupyterlite/files/pystanwasm-*.whl examples/pyscript/
 
+QUARTO_DOCS := linear-regression logistic-regression eight-schools parallel-chains
+
+# Each .qmd is a single self-contained document (see the demos themselves for
+# why); `quarto render` needs stanwasm + the wheel sitting next to them, same
+# as pyscript-build, plus the vendored r-wasm/live extension in _extensions/.
+.PHONY: quarto-build
+quarto-build: build-wheel copy-stanwasm ## Render the Quarto Live demos, in place in examples/quarto/
+	rm -rf examples/quarto/stanwasm
+	cp -R examples/jupyterlite/files/stanwasm examples/quarto/stanwasm
+	cp examples/jupyterlite/files/pystanwasm-*.whl examples/quarto/
+	for doc in $(QUARTO_DOCS); do \
+	  QUARTO_PYTHON=$(VENV)/bin/python quarto render examples/quarto/$$doc.qmd; \
+	done
+
 .PHONY: pages-build
-pages-build: jupyterlite-build marimo-build pyscript-build ## Combined static site for GitHub Pages: JupyterLite at /, marimo at /marimo/, PyScript at /pyscript/
+pages-build: jupyterlite-build marimo-build pyscript-build quarto-build ## Combined static site for GitHub Pages: JupyterLite at /, marimo at /marimo/, PyScript at /pyscript/, Quarto Live at /quarto/
 	rm -rf dist
-	mkdir -p dist/marimo dist/pyscript
+	mkdir -p dist/marimo dist/pyscript dist/quarto
 	cp -R examples/jupyterlite/_output/. dist/
 	cp -R $(MARIMO_OUT)/. dist/marimo/
 	cp -R examples/pyscript/. dist/pyscript/
+	cp examples/quarto/*.html dist/quarto/
+	cp -R examples/quarto/*_files dist/quarto/
+	cp -R examples/quarto/stanwasm dist/quarto/
+	cp examples/quarto/pystanwasm-*.whl dist/quarto/

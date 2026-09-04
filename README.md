@@ -51,8 +51,8 @@ way JupyterLite does, so nothing in `pystanwasm` itself is JupyterLite-
 specific; the one host-dependent piece is finding the site's own base URL
 from inside that worker (`self.location.origin` alone breaks under a
 project-site subpath — see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is
-why all three demos below are deployed at a real subpath rather than each
-getting its own site.
+why all demos below are deployed at a real subpath rather than each getting
+its own site.
 
 **[habakan.github.io/pystanwasm/pyscript](https://habakan.github.io/pystanwasm/pyscript/)**
 — the same four demos again, this time as plain
@@ -70,16 +70,30 @@ int>)` (silently version-fragile — fixed by building the whole
 compile-and-sample call as one pure-JS `run_js` snippet instead, the same
 pattern `sampling_parallel` already used).
 
+**[habakan.github.io/pystanwasm/quarto](https://habakan.github.io/pystanwasm/quarto/)**
+— the same four demos as [Quarto Live](https://r-wasm.github.io/quarto-live/)
+`{pyodide}` documents: a rendered page with an interactive Python block
+embedded in it, Pyodide running in its own Web Worker again (same
+subpath-detection story as marimo, though the worker URL shape here needs its
+own regex — the extension nests a per-document `_files/` directory in the
+path). Each demo is a single `{pyodide}` block rather than several
+cooperating ones; splitting the state that `pystanwasm` builds up (a
+`StanModel`/`StanFit` holding live JS proxies) across Quarto Live's
+otherwise-shared-namespace blocks breaks with `TypeError: unhashable type:
+'pyodide.ffi.JsProxy'`.
+
 `make marimo-build`/`make pages-build` need [`uv`](https://github.com/astral-sh/uv)
 on `PATH` — `marimo export html-wasm` shells out to it to resolve the
-notebook's imports.
+notebook's imports. `make quarto-build`/`make pages-build` also need the
+[Quarto](https://quarto.org/) CLI on `PATH`.
 
 ```bash
 make setup           # npm install + a venv with jupyterlite-core, marimo, build, etc.
 make jupyterlite      # build the pystanwasm wheel, then serve JupyterLite at http://127.0.0.1:8000
 make marimo-build     # build the 4 marimo demos into examples/marimo/_output
 make pyscript-build   # stage stanwasm + the wheel next to examples/pyscript/'s HTML pages
-make pages-build      # all three, combined into dist/ (JupyterLite /, marimo /marimo/, PyScript /pyscript/) -- what CI ships
+make quarto-build     # render the 4 Quarto Live demos in place in examples/quarto/
+make pages-build      # all four, combined into dist/ (JupyterLite /, marimo /marimo/, PyScript /pyscript/, Quarto Live /quarto/) -- what CI ships
 ```
 
 ## License
