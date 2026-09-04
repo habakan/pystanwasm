@@ -22,8 +22,10 @@ import numpy as np
 import pandas as pd
 
 # Where stanwasm's wasm-bindgen output is expected to be served from,
-# relative to the page origin. Override via `StanModel(..., stanwasm_path=...)`
-# if your deployment lays out static files differently.
+# relative to the detected site root (see `_SITE_BASE_JS` below). Override
+# via `StanModel(..., stanwasm_path=...)` if your deployment lays out static
+# files differently, or `StanModel(..., site_base=...)` to skip site-root
+# auto-detection entirely.
 DEFAULT_STANWASM_PATH = "/files/stanwasm/pkg/stanwasm.js"
 
 _stanwasm_js_cache = {}
@@ -34,15 +36,23 @@ _nested_worker_support = None  # None = not probed yet; cached per session after
 # path built as `origin + "/files/..."` silently 404s. `self.location.href`
 # inside the Pyodide kernel worker resolves to the *worker script's own* URL
 # rather than the page's, but that URL still lives under the real site root,
-# at a stable published path
-# (`.../extensions/@jupyterlite/pyodide-kernel-extension/static/...`), so
-# slicing off everything from that marker onward gives the actual site root.
+# at a stable published path -- which one depends on the host, since each
+# Pyodide notebook runtime bundles its kernel worker under its own directory
+# name (JupyterLite: `/extensions/@jupyterlite/pyodide-kernel-extension/
+# static/...`; marimo: `/assets/worker-*.js`). Tried in order; first match
+# wins. Pass `StanModel(..., site_base=...)` to skip detection entirely on a
+# host this list doesn't cover yet.
+_KNOWN_WORKER_MARKERS = ["/extensions/", "/assets/"]
+
 _SITE_BASE_JS = (
     "(() => {"
     "  const href = self.location.href;"
-    "  const marker = '/extensions/';"
-    "  const idx = href.indexOf(marker);"
-    "  return idx === -1 ? self.location.origin : href.slice(0, idx);"
+    "  const markers = " + json.dumps(_KNOWN_WORKER_MARKERS) + ";"
+    "  for (const marker of markers) {"
+    "    const idx = href.indexOf(marker);"
+    "    if (idx !== -1) return href.slice(0, idx);"
+    "  }"
+    "  return self.location.origin;"
     "})()"
 )
 
@@ -87,24 +97,28 @@ self.onmessage = async (e) => {
 """
 
 
-async def _load_stanwasm_js(path):
-    if path in _stanwasm_js_cache:
-        return _stanwasm_js_cache[path]
+def _resolve_stanwasm_url(path, site_base=None):
+    base = site_base if site_base is not None else _site_base_url()
+    return base + path
+
+
+async def _load_stanwasm_js(url):
+    if url in _stanwasm_js_cache:
+        return _stanwasm_js_cache[url]
 
     import pyodide_js
     from pyodide.code import run_js
 
-    base = _site_base_url() + path
     js_src = (
         "(async () => {"
-        "  const mod = await import(" + json.dumps(base) + ");"
+        "  const mod = await import(" + json.dumps(url) + ");"
         "  await mod.default();"
         "  return mod;"
         "})()"
     )
     mod = await run_js(js_src)
     pyodide_js.registerJsModule("stanwasm_js", mod)
-    _stanwasm_js_cache[path] = mod
+    _stanwasm_js_cache[url] = mod
     return mod
 
 
@@ -217,16 +231,18 @@ class StanFit:
 class StanModel:
     """A Stan program, compiled against a dataset on each `sampling()` call."""
 
-    def __init__(self, model_code, stanwasm_path=DEFAULT_STANWASM_PATH):
+    def __init__(self, model_code, stanwasm_path=DEFAULT_STANWASM_PATH, site_base=None):
         self.model_code = model_code
         self.stanwasm_path = stanwasm_path
+        self.site_base = site_base
 
     async def sampling(self, data, iter=2000, warmup=None, seed=42, init=None):
         if warmup is None:
             warmup = iter // 2
         n_draws = iter - warmup
 
-        stanwasm_js = await _load_stanwasm_js(self.stanwasm_path)
+        url = _resolve_stanwasm_url(self.stanwasm_path, self.site_base)
+        stanwasm_js = await _load_stanwasm_js(url)
         model = stanwasm_js.StanModel.new(self.model_code, json.dumps(data))
 
         from js import BigInt
@@ -279,7 +295,7 @@ class StanModel:
                 await self.sampling(data, iter=iter, warmup=warmup, seed=s, init=init) for s in seeds
             ]
 
-        stanwasm_url = _site_base_url() + self.stanwasm_path
+        stanwasm_url = _resolve_stanwasm_url(self.stanwasm_path, self.site_base)
         jobs = [{"warmup": warmup, "nDraws": n_draws, "seed": s, "init": init} for s in seeds]
         results = await _sample_chains_via_workers(stanwasm_url, self.model_code, data, jobs)
 

@@ -24,28 +24,41 @@ fit["beta"]        # one parameter's draws as a numpy array
 `StanModel(code).sampling(...)` is styled after
 [PyStan](https://pystan.readthedocs.io/)'s API for readability, but
 `pystanwasm` is not affiliated with PyStan and is not a clone of it: no
-multi-chain support, no diagnostics beyond what `stanwasm` itself returns,
-and every `sampling()` call recompiles the model, since `stanwasm` binds
-Stan code and data together at construction time rather than compiling once
-and rebinding data per call. See [`src/pystanwasm/_bridge.py`](src/pystanwasm/_bridge.py)
-for the full list of simplifications.
+diagnostics beyond what `stanwasm` itself returns, and every `sampling()`
+call recompiles the model, since `stanwasm` binds Stan code and data
+together at construction time rather than compiling once and rebinding data
+per call. `sampling_parallel(n_chains=...)` runs multiple chains
+concurrently, one per Web Worker, when nested-Worker support is available
+(falls back to sequential otherwise) — see
+[`src/pystanwasm/_bridge.py`](src/pystanwasm/_bridge.py) for that and the
+full list of simplifications.
 
 This is an early, experimental proof of concept — not on PyPI yet.
 
-## Demo
+## Demos
 
-[`examples/jupyterlite`](examples/jupyterlite) is a
-[JupyterLite](https://jupyterlite.readthedocs.io/) notebook — no server,
-nothing installed — that installs `pystanwasm` via `micropip` from a locally
-built wheel and runs a small linear regression end to end.
+**[habakan.github.io/pystanwasm](https://habakan.github.io/pystanwasm/)** —
+a [JupyterLite](https://jupyterlite.readthedocs.io/) notebook (no server,
+nothing installed) that installs `pystanwasm` via `micropip` from a locally
+built wheel: linear regression, logistic regression, a hierarchical model
+(eight schools), and `sampling_parallel` timed against sequential sampling.
+
+**[habakan.github.io/pystanwasm/marimo](https://habakan.github.io/pystanwasm/marimo/)**
+— the same bridge inside a [marimo](https://marimo.io/) WASM notebook.
+marimo runs Pyodide in a dedicated Web Worker the same way JupyterLite does,
+so nothing in `pystanwasm` itself is JupyterLite-specific; the one
+host-dependent piece is finding the site's own base URL from inside that
+worker (`self.location.origin` alone breaks under a project-site subpath —
+see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is why both demos are
+deployed at a real subpath (`/pystanwasm/` and `/pystanwasm/marimo/`)
+rather than each getting its own site.
 
 ```bash
-make setup            # npm install + a venv with jupyterlite-core, build, etc.
-make jupyterlite       # build the pystanwasm wheel, then serve at http://127.0.0.1:8000
+make setup           # npm install + a venv with jupyterlite-core, marimo, build, etc.
+make jupyterlite      # build the pystanwasm wheel, then serve JupyterLite at http://127.0.0.1:8000
+make marimo-build     # build the marimo demo into examples/marimo/_output
+make pages-build      # both, combined into dist/ (JupyterLite at /, marimo at /marimo/) -- what CI ships
 ```
-
-`make jupyterlite-build` produces the same static site under
-`examples/jupyterlite/_output/` without serving it.
 
 ## License
 

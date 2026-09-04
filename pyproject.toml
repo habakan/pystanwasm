@@ -24,6 +24,7 @@ examples = [
     "jupyterlite-pyodide-kernel",
     "jupyter_server",
     "build",
+    "marimo",
 ]
 
 [tool.hatch.build.targets.wheel]
