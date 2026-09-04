@@ -29,6 +29,29 @@ DEFAULT_STANWASM_PATH = "/files/stanwasm/pkg/stanwasm.js"
 _stanwasm_js_cache = {}
 _nested_worker_support = None  # None = not probed yet; cached per session after that.
 
+# `self.location.origin` alone is wrong for a GitHub-Pages-style project site
+# (https://host/repo-name/): it omits the "/repo-name" prefix entirely, so a
+# path built as `origin + "/files/..."` silently 404s. `self.location.href`
+# inside the Pyodide kernel worker resolves to the *worker script's own* URL
+# rather than the page's, but that URL still lives under the real site root,
+# at a stable published path
+# (`.../extensions/@jupyterlite/pyodide-kernel-extension/static/...`), so
+# slicing off everything from that marker onward gives the actual site root.
+_SITE_BASE_JS = (
+    "(() => {"
+    "  const href = self.location.href;"
+    "  const marker = '/extensions/';"
+    "  const idx = href.indexOf(marker);"
+    "  return idx === -1 ? self.location.origin : href.slice(0, idx);"
+    "})()"
+)
+
+
+def _site_base_url():
+    from pyodide.code import run_js
+
+    return run_js(_SITE_BASE_JS)
+
 # A plain-JS worker body (no Pyodide) for `sampling_parallel`: one chain per
 # instance. Sent as a Blob URL rather than a static file so there's no extra
 # path to keep in sync with `stanwasm_path`. Each job carries its own
@@ -71,7 +94,7 @@ async def _load_stanwasm_js(path):
     import pyodide_js
     from pyodide.code import run_js
 
-    base = run_js("self.location.origin") + path
+    base = _site_base_url() + path
     js_src = (
         "(async () => {"
         "  const mod = await import(" + json.dumps(base) + ");"
@@ -256,9 +279,7 @@ class StanModel:
                 await self.sampling(data, iter=iter, warmup=warmup, seed=s, init=init) for s in seeds
             ]
 
-        from pyodide.code import run_js
-
-        stanwasm_url = run_js("self.location.origin") + self.stanwasm_path
+        stanwasm_url = _site_base_url() + self.stanwasm_path
         jobs = [{"warmup": warmup, "nDraws": n_draws, "seed": s, "init": init} for s in seeds]
         results = await _sample_chains_via_workers(stanwasm_url, self.model_code, data, jobs)
 
