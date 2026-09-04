@@ -1,0 +1,62 @@
+name: pages
+
+# The JupyterLite site is the one thing in this repository a reader can try
+# without installing anything, so it ships from `main` on every change that
+# can alter it.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "examples/jupyterlite/**"
+      - "pyproject.toml"
+      - "Makefile"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+# Read-only by default; only the deploy job widens this, and only to what
+# actions/deploy-pages needs. The build job never holds a token that can
+# publish.
+permissions:
+  contents: read
+
+# A queued deploy should be superseded by a newer one, but a deploy already in
+# flight must not be cancelled — that can leave the site half-published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+# Third-party actions are pinned by commit SHA, not by tag.
+jobs:
+  build:
+    name: build the JupyterLite site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+
+      - run: make setup
+      - run: make jupyterlite-build
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: examples/jupyterlite/_output
+
+  deploy:
+    name: deploy to github-pages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
