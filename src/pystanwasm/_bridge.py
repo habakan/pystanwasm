@@ -8,11 +8,11 @@ what stanwasm itself returns, and every `sampling()` call recompiles the
 model, because stanwasm binds Stan code and data together at construction
 time rather than compiling code once and rebinding data per call.
 
-`js`, `pyodide_js` and `pyodide.code.run_js` are synthetic modules a
-Pyodide runtime provides, not real pip packages — they're only importable
-inside Pyodide, so they're imported lazily inside the functions that need
-them rather than at module import time. That keeps a plain `import
-pystanwasm` from failing outside Pyodide; only calling into stanwasm does.
+`js` and `pyodide.code.run_js` are synthetic modules a Pyodide runtime
+provides, not real pip packages — they're only importable inside Pyodide,
+so they're imported lazily inside the functions that need them rather than
+at module import time. That keeps a plain `import pystanwasm` from failing
+outside Pyodide; only calling into stanwasm does.
 """
 
 import json
@@ -106,7 +106,6 @@ async def _load_stanwasm_js(url):
     if url in _stanwasm_js_cache:
         return _stanwasm_js_cache[url]
 
-    import pyodide_js
     from pyodide.code import run_js
 
     js_src = (
@@ -116,8 +115,12 @@ async def _load_stanwasm_js(url):
         "  return mod;"
         "})()"
     )
+    # Nothing here does `import stanwasm_js` -- callers use the returned JS
+    # module object directly -- so this doesn't call `pyodide_js.
+    # registerJsModule`. That call is also outright incompatible with
+    # PyScript's Pyodide environment (`TypeError: Cannot redefine property:
+    # __all__`), found while adding the PyScript demo.
     mod = await run_js(js_src)
-    pyodide_js.registerJsModule("stanwasm_js", mod)
     _stanwasm_js_cache[url] = mod
     return mod
 
@@ -242,28 +245,53 @@ class StanModel:
         n_draws = iter - warmup
 
         url = _resolve_stanwasm_url(self.stanwasm_path, self.site_base)
-        stanwasm_js = await _load_stanwasm_js(url)
-        model = stanwasm_js.StanModel.new(self.model_code, json.dumps(data))
+        # Ensures `import(url)` + the wasm-bindgen `init()` have happened
+        # (and only once, cached); the module handle itself isn't used here.
+        await _load_stanwasm_js(url)
 
-        from js import BigInt
+        from pyodide.code import run_js
 
-        if init is None:
-            init = [0.0] * model.n_params
-        raw = model.sample(init, warmup, n_draws, BigInt(seed))
+        # Constructs the model, samples, and constrains every draw all in
+        # one JS scope. Passing the seed as a Python int through `js.BigInt`
+        # is version-fragile (observed "Cannot convert 42 to a BigInt"
+        # under PyScript's Pyodide 0.26.4, though fine under JupyterLite's
+        # and marimo's newer bundled Pyodide) -- embedding it in JSON and
+        # calling `BigInt()` on it in pure JS, the same way
+        # `_sample_chains_via_workers` already does, sidesteps that
+        # entirely. Also avoids one Python<->JS round trip per draw for
+        # `constrainDraw()`.
+        job = {
+            "stanwasmUrl": url,
+            "modelCode": self.model_code,
+            "dataJson": json.dumps(data),
+            "warmup": warmup,
+            "nDraws": n_draws,
+            "seed": seed,
+            "init": init,
+        }
+        js_src = (
+            "(async () => {"
+            "  const job = " + json.dumps(job) + ";"
+            "  const mod = await import(job.stanwasmUrl);"
+            "  const model = new mod.StanModel(job.modelCode, job.dataJson);"
+            "  const names = model.paramNames();"
+            "  const nParams = model.n_params;"
+            "  const initArr = job.init ? Float64Array.from(job.init) : new Float64Array(nParams);"
+            "  const raw = model.sample(initArr, job.warmup, job.nDraws, BigInt(job.seed));"
+            "  const total = job.warmup + job.nDraws;"
+            "  const out = new Float64Array(total * names.length);"
+            "  for (let i = 0; i < total; i++) {"
+            "    const row = raw.slice(i * nParams, (i + 1) * nParams);"
+            "    out.set(model.constrainDraw(row), i * names.length);"
+            "  }"
+            "  return { names, draws: out };"
+            "})()"
+        )
+        result = await run_js(js_src)
 
-        names = list(model.paramNames())
+        names = list(result.names)
         total = warmup + n_draws
-        raw_np = np.asarray(raw.to_py()).reshape((total, model.n_params))
-        # `sample()` is unconstrained-parameters-only; `paramNames()` covers
-        # parameters + transformed parameters, so each row needs constraining
-        # (and expanding) via `constrainDraw()` before it lines up with `names`.
-        draws = np.empty((total, len(names)))
-        for i in range(total):
-            # constrainDraw expects a real JS Float64Array-compatible
-            # array-like; a bare Pyodide-wrapped numpy row isn't one, so
-            # convert to a plain Python list first (same as `init` above).
-            draws[i] = model.constrainDraw(raw_np[i].tolist()).to_py()
-
+        draws = np.asarray(result.draws.to_py()).reshape((total, len(names)))
         return StanFit(names, draws, warmup)
 
     async def sampling_parallel(self, data, n_chains=4, iter=2000, warmup=None, seeds=None, init=None):

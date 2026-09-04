@@ -51,8 +51,24 @@ way JupyterLite does, so nothing in `pystanwasm` itself is JupyterLite-
 specific; the one host-dependent piece is finding the site's own base URL
 from inside that worker (`self.location.origin` alone breaks under a
 project-site subpath — see `_bridge.py`'s `_KNOWN_WORKER_MARKERS`), which is
-why both demos are deployed at a real subpath (`/pystanwasm/` and
-`/pystanwasm/marimo/`) rather than each getting its own site.
+why all three demos below are deployed at a real subpath rather than each
+getting its own site.
+
+**[habakan.github.io/pystanwasm/pyscript](https://habakan.github.io/pystanwasm/pyscript/)**
+— the same four demos again, this time as plain
+[PyScript](https://pyscript.net/) pages: no notebook kernel at all, just
+`<script type="py">` in HTML. PyScript's Worker mode needs
+cross-origin-isolation headers a static Pages site doesn't set, so these run
+on the main thread — `self.location` is just the real page location there,
+no site-root detection needed, and the Workers `sampling_parallel` spawns
+aren't nested inside another Worker (an easier case than JupyterLite/
+marimo). Building this demo out surfaced two real portability bugs in
+`_bridge.py`, both fixed there rather than worked around in the page:
+`pyodide_js.registerJsModule()` (leftover from an earlier design, unused,
+and outright broken under PyScript's Pyodide build) and `js.BigInt(<python
+int>)` (silently version-fragile — fixed by building the whole
+compile-and-sample call as one pure-JS `run_js` snippet instead, the same
+pattern `sampling_parallel` already used).
 
 `make marimo-build`/`make pages-build` need [`uv`](https://github.com/astral-sh/uv)
 on `PATH` — `marimo export html-wasm` shells out to it to resolve the
@@ -62,7 +78,8 @@ notebook's imports.
 make setup           # npm install + a venv with jupyterlite-core, marimo, build, etc.
 make jupyterlite      # build the pystanwasm wheel, then serve JupyterLite at http://127.0.0.1:8000
 make marimo-build     # build the 4 marimo demos into examples/marimo/_output
-make pages-build      # both, combined into dist/ (JupyterLite at /, marimo at /marimo/) -- what CI ships
+make pyscript-build   # stage stanwasm + the wheel next to examples/pyscript/'s HTML pages
+make pages-build      # all three, combined into dist/ (JupyterLite /, marimo /marimo/, PyScript /pyscript/) -- what CI ships
 ```
 
 ## License

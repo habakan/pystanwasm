@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pystanwasm: eight schools (PyScript)</title>
+<script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  pre { background: #f6f8fa; padding: 0.8rem; border-radius: 6px; overflow-x: auto; }
+  #out { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Eight schools</h1>
+<p>The classic partial-pooling example (Rubin, 1981). Non-centered parameterization
+(<code>theta = mu + tau * theta_tilde</code>) to avoid the funnel geometry NUTS struggles with. Same
+<a href="https://github.com/habakan/pystanwasm">pystanwasm</a> bridge as the other demos, via
+<a href="https://pyscript.net/">PyScript</a>.</p>
+<py-config>
+packages = ["micropip", "numpy", "matplotlib"]
+</py-config>
+<div id="out">loading Pyodide...</div>
+<script type="py">
+import json
+import micropip
+from pyodide.code import run_js
+from pyscript import display
+
+href = run_js("self.location.href")
+site_base = href.rsplit("/", 1)[0]
+
+await micropip.install(site_base + "/pystanwasm-0.1.0-py3-none-any.whl")
+
+import numpy as np
+import pystanwasm as stan
+
+stan_code = """
+data {
+  int<lower=0> J;
+  vector[J] y;
+  vector[J] sigma;
+}
+parameters {
+  real mu;
+  real<lower=0> tau;
+  vector[J] theta_tilde;
+}
+transformed parameters {
+  vector[J] theta = mu + tau * theta_tilde;
+}
+model {
+  theta_tilde ~ normal(0, 1);
+  y ~ normal(theta, sigma);
+}
+"""
+schools = ["A", "B", "C", "D", "E", "F", "G", "H"]
+y = [28, 8, -3, 7, -1, 1, 18, 12]
+sigma = [15, 10, 16, 11, 9, 11, 10, 18]
+data = {"J": 8, "y": y, "sigma": sigma}
+
+model = stan.StanModel(
+    stan_code,
+    stanwasm_path="/stanwasm/pkg/stanwasm.js",
+    site_base=site_base,
+)
+fit = await model.sampling(data=data, iter=2000, warmup=1000, seed=42)
+
+display(f"pystanwasm {stan.__version__} -- parameters: {fit.param_names}", target="out", append=False)
+display(fit.summary(), target="out", append=True)
+
+import matplotlib.pyplot as plt
+
+theta_names = [n for n in fit.param_names if n.startswith("theta") and "tilde" not in n]
+theta_draws = np.column_stack([fit[n] for n in theta_names])
+theta_mean = theta_draws.mean(axis=0)
+theta_sd = theta_draws.std(axis=0)
+
+y_arr = np.array(y)
+sigma_arr = np.array(sigma)
+positions = np.arange(len(schools))
+
+plt.figure(figsize=(7, 5))
+plt.errorbar(y_arr, positions - 0.1, xerr=sigma_arr, fmt="o", label="observed", color="tab:gray")
+plt.errorbar(theta_mean, positions + 0.1, xerr=theta_sd, fmt="o", label="posterior (pooled)", color="tab:blue")
+plt.axvline(fit["mu"].mean(), linestyle="--", color="k", label="population mean")
+plt.yticks(positions, schools)
+plt.xlabel("effect")
+plt.legend()
+plt.title("eight schools: observed vs partially-pooled effects")
+plt.gca().invert_yaxis()
+display(plt.gcf(), target="out", append=True)
+</script>
+</body>
+</html>

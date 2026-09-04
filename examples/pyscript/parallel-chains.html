@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pystanwasm: parallel chains (PyScript)</title>
+<script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  pre { background: #f6f8fa; padding: 0.8rem; border-radius: 6px; overflow-x: auto; }
+  #out { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Parallel chains via Web Workers</h1>
+<p><code>sampling_parallel(n_chains=...)</code> spawns one plain-JS Web Worker per chain -- no Pyodide in
+them, just <a href="https://github.com/habakan/stanwasm">stanwasm</a> loaded fresh in each -- so multiple
+chains run concurrently. This page runs PyScript on the main thread (not a Worker, since PyScript's Worker
+mode needs cross-origin-isolation headers this static site doesn't set), so the Workers
+<code>sampling_parallel</code> spawns aren't nested inside another Worker here, unlike the
+<a href="../">JupyterLite</a>/<a href="../marimo/">marimo</a> demos -- just ordinary Workers off the main
+thread, an easier case.</p>
+<py-config>
+packages = ["micropip", "numpy", "pandas", "matplotlib"]
+</py-config>
+<div id="out">loading Pyodide...</div>
+<script type="py">
+import json
+import time
+import micropip
+from pyodide.code import run_js
+from pyscript import display
+
+href = run_js("self.location.href")
+site_base = href.rsplit("/", 1)[0]
+
+await micropip.install(site_base + "/pystanwasm-0.1.0-py3-none-any.whl")
+
+import numpy as np
+import pandas as pd
+import pystanwasm as stan
+
+rng = np.random.default_rng(7)
+N, K = 500, 10
+X = rng.normal(size=(N, K))
+beta_true = rng.normal(0, 2, size=K)
+alpha_true, sigma_true = 1.5, 1.2
+y = alpha_true + X @ beta_true + rng.normal(0, sigma_true, size=N)
+
+stan_code = """
+data {
+  int<lower=0> N;
+  int<lower=0> K;
+  matrix[N, K] X;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  vector[K] beta;
+  real<lower=0> sigma;
+}
+model {
+  alpha ~ normal(0, 5);
+  beta ~ normal(0, 5);
+  sigma ~ exponential(1);
+  y ~ normal(alpha + X * beta, sigma);
+}
+"""
+data = {"N": N, "K": K, "X": X.tolist(), "y": y.tolist()}
+N_CHAINS = 4
+
+model = stan.StanModel(
+    stan_code,
+    stanwasm_path="/stanwasm/pkg/stanwasm.js",
+    site_base=site_base,
+)
+
+t0 = time.perf_counter()
+sequential_fits = [
+    await model.sampling(data=data, iter=2000, warmup=1000, seed=42 + i)
+    for i in range(N_CHAINS)
+]
+sequential_time = time.perf_counter() - t0
+
+t1 = time.perf_counter()
+parallel_fits = await model.sampling_parallel(data=data, n_chains=N_CHAINS, iter=2000, warmup=1000)
+parallel_time = time.perf_counter() - t1
+
+display(
+    f"sequential: {sequential_time:.2f}s for {N_CHAINS} chains\n"
+    f"parallel:   {parallel_time:.2f}s for {N_CHAINS} chains\n"
+    f"speedup:    {sequential_time / parallel_time:.1f}x",
+    target="out",
+    append=False,
+)
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(5, 4))
+plt.bar(["sequential", "parallel"], [sequential_time, parallel_time], color=["tab:gray", "tab:blue"])
+plt.ylabel("wall-clock seconds")
+plt.title(f"{N_CHAINS} chains, sequential vs Worker-parallel")
+display(plt.gcf(), target="out", append=True)
+
+beta0_name = [n for n in sequential_fits[0].param_names if n.startswith("beta")][0]
+seq_means = [f[beta0_name].mean() for f in sequential_fits]
+par_means = [f[beta0_name].mean() for f in parallel_fits]
+table = pd.DataFrame(
+    {"sequential": seq_means, "parallel": par_means},
+    index=[f"chain {i}" for i in range(N_CHAINS)],
+)
+display(table, target="out", append=True)
+</script>
+</body>
+</html>

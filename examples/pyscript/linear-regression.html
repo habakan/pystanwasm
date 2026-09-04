@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pystanwasm: linear regression (PyScript)</title>
+<script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  pre { background: #f6f8fa; padding: 0.8rem; border-radius: 6px; overflow-x: auto; }
+  #out { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Linear regression</h1>
+<p>Compile and sample a small linear regression with <a href="https://github.com/habakan/pystanwasm">pystanwasm</a>,
+via <a href="https://pyscript.net/">PyScript</a> -- a plain HTML page, no notebook kernel at all. Runs on the main
+thread here (PyScript's Worker mode needs cross-origin-isolation headers this static site doesn't set), so
+<code>self.location</code> is just the real page location -- no site-base detection needed, unlike the
+<a href="../">JupyterLite</a>/<a href="../marimo/">marimo</a> demos.</p>
+<div id="out">loading Pyodide...</div>
+<py-config>
+packages = ["micropip", "numpy", "pandas", "matplotlib"]
+</py-config>
+<script type="py">
+import json
+import micropip
+from pyodide.code import run_js
+from pyscript import display
+
+href = run_js("self.location.href")
+site_base = href.rsplit("/", 1)[0]
+
+await micropip.install(site_base + "/pystanwasm-0.1.0-py3-none-any.whl")
+
+import pystanwasm as stan
+
+stan_code = """
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  real beta;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(alpha + beta * x, sigma);
+}
+"""
+data = {"N": 5, "x": [1, 2, 3, 4, 5], "y": [2.1, 3.9, 6.2, 7.8, 10.1]}
+
+model = stan.StanModel(
+    stan_code,
+    stanwasm_path="/stanwasm/pkg/stanwasm.js",
+    site_base=site_base,
+)
+fit = await model.sampling(data=data, iter=2000, warmup=1000, seed=42)
+
+display(f"pystanwasm {stan.__version__} -- parameters: {fit.param_names}", target="out", append=False)
+display(fit.summary(), target="out", append=True)
+
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(5, 4))
+plt.hist(fit["beta"], bins=30)
+plt.title("beta posterior")
+display(plt.gcf(), target="out", append=True)
+</script>
+</body>
+</html>

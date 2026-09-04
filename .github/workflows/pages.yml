@@ -1,8 +1,9 @@
 name: pages
 
-# The JupyterLite site (at /) and the marimo demo (at /marimo/) are the
-# things in this repository a reader can try without installing anything, so
-# this ships from `main` on every change that can alter either.
+# The JupyterLite site (at /), the marimo demo (at /marimo/), and the
+# PyScript demo (at /pyscript/) are the things in this repository a reader
+# can try without installing anything, so this ships from `main` on every
+# change that can alter any of them.
 on:
   push:
     branches: [main]
@@ -10,6 +11,7 @@ on:
       - "src/**"
       - "examples/jupyterlite/**"
       - "examples/marimo/**"
+      - "examples/pyscript/**"
       - "pyproject.toml"
       - "Makefile"
       - ".github/workflows/pages.yml"
@@ -30,7 +32,7 @@ concurrency:
 # Third-party actions are pinned by commit SHA, not by tag.
 jobs:
   build:
-    name: build the JupyterLite + marimo sites
+    name: build the JupyterLite + marimo + PyScript sites
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -42,9 +42,18 @@ marimo-build: build-wheel copy-stanwasm ## Production build of the marimo demos,
 	done
 	cp $(MARIMO_DIR)/index.html $(MARIMO_OUT)/index.html
 
+# PyScript demos are plain static HTML, no export/build step -- just need
+# stanwasm's assets + the wheel sitting next to them.
+.PHONY: pyscript-build
+pyscript-build: build-wheel copy-stanwasm ## Stage stanwasm + the wheel next to examples/pyscript/'s HTML pages
+	rm -rf examples/pyscript/stanwasm
+	cp -R examples/jupyterlite/files/stanwasm examples/pyscript/stanwasm
+	cp examples/jupyterlite/files/pystanwasm-*.whl examples/pyscript/
+
 .PHONY: pages-build
-pages-build: jupyterlite-build marimo-build ## Combined static site for GitHub Pages: JupyterLite at /, marimo at /marimo/
+pages-build: jupyterlite-build marimo-build pyscript-build ## Combined static site for GitHub Pages: JupyterLite at /, marimo at /marimo/, PyScript at /pyscript/
 	rm -rf dist
-	mkdir -p dist/marimo
+	mkdir -p dist/marimo dist/pyscript
 	cp -R examples/jupyterlite/_output/. dist/
 	cp -R $(MARIMO_OUT)/. dist/marimo/
+	cp -R examples/pyscript/. dist/pyscript/

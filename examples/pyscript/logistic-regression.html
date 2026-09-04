@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>pystanwasm: logistic regression (PyScript)</title>
+<script type="module" src="https://pyscript.net/releases/2024.11.1/core.js"></script>
+<style>
+  body { font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1a1a1a; }
+  pre { background: #f6f8fa; padding: 0.8rem; border-radius: 6px; overflow-x: auto; }
+  #out { white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Logistic regression</h1>
+<p>A binary classifier: two predictors, a decision boundary, and the posterior over where that boundary
+actually sits. Same <a href="https://github.com/habakan/pystanwasm">pystanwasm</a> bridge as the
+<a href="linear-regression.html">linear regression</a> demo, via <a href="https://pyscript.net/">PyScript</a>.</p>
+<py-config>
+packages = ["micropip", "numpy", "matplotlib"]
+</py-config>
+<div id="out">loading Pyodide...</div>
+<script type="py">
+import json
+import micropip
+from pyodide.code import run_js
+from pyscript import display
+
+href = run_js("self.location.href")
+site_base = href.rsplit("/", 1)[0]
+
+await micropip.install(site_base + "/pystanwasm-0.1.0-py3-none-any.whl")
+
+import numpy as np
+import pystanwasm as stan
+
+rng = np.random.default_rng(0)
+N = 300
+X = rng.normal(size=(N, 2))
+alpha_true, beta_true = -0.5, np.array([2.0, -1.5])
+p_true = 1 / (1 + np.exp(-(alpha_true + X @ beta_true)))
+y = rng.binomial(1, p_true)
+
+stan_code = """
+data {
+  int<lower=0> N;
+  int<lower=0> K;
+  matrix[N, K] X;
+  array[N] int<lower=0, upper=1> y;
+}
+parameters {
+  real alpha;
+  vector[K] beta;
+}
+model {
+  alpha ~ normal(0, 5);
+  beta ~ normal(0, 5);
+  y ~ bernoulli_logit(alpha + X * beta);
+}
+"""
+data = {"N": N, "K": 2, "X": X.tolist(), "y": y.tolist()}
+
+model = stan.StanModel(
+    stan_code,
+    stanwasm_path="/stanwasm/pkg/stanwasm.js",
+    site_base=site_base,
+)
+fit = await model.sampling(data=data, iter=2000, warmup=1000, seed=42)
+
+display(f"pystanwasm {stan.__version__} -- parameters: {fit.param_names}", target="out", append=False)
+
+import matplotlib.pyplot as plt
+
+beta_names = [n for n in fit.param_names if n.startswith("beta")]
+beta_draws = np.column_stack([fit[n] for n in beta_names])
+beta_mean = beta_draws.mean(axis=0)
+alpha_mean = fit["alpha"].mean()
+
+xs = np.linspace(X[:, 0].min(), X[:, 0].max(), 50)
+
+plt.figure(figsize=(6, 5))
+plt.scatter(X[:, 0], X[:, 1], c=y, cmap="coolwarm", alpha=0.6, edgecolor="k", linewidth=0.3)
+plt.plot(xs, -(alpha_true + beta_true[0] * xs) / beta_true[1], "k--", label="true boundary")
+plt.plot(xs, -(alpha_mean + beta_mean[0] * xs) / beta_mean[1], "g-", label="posterior mean")
+plt.xlabel("x1")
+plt.ylabel("x2")
+plt.legend()
+plt.title("logistic regression: recovered vs true boundary")
+display(plt.gcf(), target="out", append=True)
+</script>
+</body>
+</html>
