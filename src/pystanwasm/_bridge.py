@@ -52,10 +52,13 @@ async def _load_stanwasm_js(path):
 class StanFit:
     """Draws from one `StanModel.sampling()` call.
 
-    `draws` is unconstrained-space, shape (warmup + n_draws, n_params) — the
-    same layout stanwasm's `sample()` returns in JS. Values are on the scale
-    stanwasm samples in (e.g. a `<lower=0>` parameter is log-scale here),
-    not the constrained scale a Stan user normally expects.
+    `draws` is constrained-space, shape (warmup + n_draws, len(param_names))
+    — `param_names` covers `parameters` *and* `transformed parameters`
+    (stanwasm's `paramNames()` order), so a `<lower=0>` parameter is already
+    on its natural scale and any `transformed parameters` quantity is
+    included, not just the raw sampled parameters. Built by running each
+    raw unconstrained draw stanwasm's `sample()` returns through
+    `StanModel.constrainDraw()`.
     """
 
     def __init__(self, param_names, draws, warmup):
@@ -93,7 +96,19 @@ class StanModel:
 
         if init is None:
             init = [0.0] * model.n_params
-        samples = model.sample(init, warmup, n_draws, BigInt(seed))
+        raw = model.sample(init, warmup, n_draws, BigInt(seed))
 
-        draws = np.asarray(samples.to_py()).reshape((-1, model.n_params))
-        return StanFit(list(model.paramNames()), draws, warmup)
+        names = list(model.paramNames())
+        total = warmup + n_draws
+        raw_np = np.asarray(raw.to_py()).reshape((total, model.n_params))
+        # `sample()` is unconstrained-parameters-only; `paramNames()` covers
+        # parameters + transformed parameters, so each row needs constraining
+        # (and expanding) via `constrainDraw()` before it lines up with `names`.
+        draws = np.empty((total, len(names)))
+        for i in range(total):
+            # constrainDraw expects a real JS Float64Array-compatible
+            # array-like; a bare Pyodide-wrapped numpy row isn't one, so
+            # convert to a plain Python list first (same as `init` above).
+            draws[i] = model.constrainDraw(raw_np[i].tolist()).to_py()
+
+        return StanFit(names, draws, warmup)
