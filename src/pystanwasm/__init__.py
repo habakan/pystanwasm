@@ -11,7 +11,7 @@ docstring for what's simplified.
     fit.summary()
 """
 
-from ._bridge import StanFit, StanModel
+from ._bridge import StanFit, StanModel, to_inference_data
 
-__all__ = ["StanModel", "StanFit"]
+__all__ = ["StanModel", "StanFit", "to_inference_data"]
 __version__ = "0.1.0"

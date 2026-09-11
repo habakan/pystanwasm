@@ -31,6 +31,10 @@ examples = [
     "pyyaml",
     "jupyter",
 ]
+test = [
+    "pytest",
+    "arviz",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/pystanwasm"]
