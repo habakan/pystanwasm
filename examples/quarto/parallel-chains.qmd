@@ -112,4 +112,10 @@ seq_means = [f[beta0_name].mean() for f in sequential_fits]
 par_means = [f[beta0_name].mean() for f in parallel_fits]
 print("sequential beta[0] means:", [round(m, 3) for m in seq_means])
 print("parallel   beta[0] means:", [round(m, 3) for m in par_means])
+
+# Four chains are what R-hat and ESS need: hand them to ArviZ itself.
+await micropip.install("arviz")
+import arviz as az
+
+print(az.summary(stan.to_inference_data(parallel_fits)))
 ```

@@ -19,12 +19,16 @@ model = stan.StanModel(stan_code)
 fit = await model.sampling(data=data, iter=2000, warmup=1000, seed=42)
 fit.summary()      # pandas DataFrame.describe() over the post-warmup draws
 fit["beta"]        # one parameter's draws as a numpy array
+
+fits = await model.sampling_parallel(data=data, n_chains=4)
+az.summary(stan.to_inference_data(fits))  # R-hat, ESS: ArviZ's own (micropip.install("arviz"))
 ```
 
 `StanModel(code).sampling(...)` is styled after
 [PyStan](https://pystan.readthedocs.io/)'s API for readability, but
 `pystanwasm` is not affiliated with PyStan and is not a clone of it: no
-diagnostics beyond what `stanwasm` itself returns, and every `sampling()`
+diagnostics of its own — `to_inference_data` hands the chains to ArviZ for
+those, grouping `beta[1]`…`beta[K]` into one variable — and every `sampling()`
 call recompiles the model, since `stanwasm` binds Stan code and data
 together at construction time rather than compiling once and rebinding data
 per call. `sampling_parallel(n_chains=...)` runs multiple chains

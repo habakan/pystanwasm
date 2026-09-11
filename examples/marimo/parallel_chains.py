@@ -191,5 +191,31 @@ def _(N_CHAINS, parallel_fits, sequential_fits):
     return
 
 
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## ArviZ over the parallel chains
+
+        Four chains are what R-hat and ESS need. `to_inference_data` turns
+        them into an `InferenceData` -- `beta` one variable of shape (K,),
+        not K columns -- and `az.summary` is ArviZ's own.
+        """
+    )
+    return
+
+
+@app.cell
+async def _(parallel_fits, stan):
+    # An earlier cell already defines `micropip`; marimo refuses a second definition.
+    import micropip as _mp
+
+    await _mp.install("arviz")
+    import arviz as az
+
+    az.summary(stan.to_inference_data(parallel_fits))
+    return
+
+
 if __name__ == "__main__":
     app.run()

@@ -242,6 +242,49 @@ class StanFit:
         return self.to_dataframe().describe()
 
 
+def to_inference_data(fits, save_warmup=False):
+    """`StanFit`s, one per chain, as an ArviZ `InferenceData`.
+
+    Needs ArviZ. Names differing only in their `[i,j]` index become one
+    variable of that shape: stanwasm writes 1-based indices with the last one
+    varying fastest, which is C order, so the columns reshape as they stand.
+    """
+    import inspect
+
+    import arviz as az
+
+    fits = [fits] if isinstance(fits, StanFit) else list(fits)
+    first = fits[0]
+    if any(
+        f.param_names != first.param_names or f._draws.shape != first._draws.shape or f.warmup != first.warmup
+        for f in fits
+    ):
+        raise ValueError("every chain needs the same parameters, number of draws and warmup")
+    draws = np.stack([f._draws for f in fits])
+
+    columns, shapes = {}, {}
+    for k, name in enumerate(first.param_names):
+        base, _, index = name.partition("[")
+        columns.setdefault(base, []).append(k)
+        if index:
+            dims = [int(i) for i in index.rstrip("]").split(",")]
+            shapes[base] = [max(a, b) for a, b in zip(shapes.get(base, dims), dims)]
+
+    def group(block):
+        return {
+            base: block[:, :, cols].reshape(block.shape[:2] + tuple(shapes.get(base, ())))
+            for base, cols in columns.items()
+        }
+
+    groups = {"posterior": group(draws[:, first.warmup :])}
+    if save_warmup and first.warmup:
+        groups["warmup_posterior"] = group(draws[:, : first.warmup])
+    # ArviZ 1.0 takes the groups as one mapping; 0.x took one keyword per group.
+    if "posterior" in inspect.signature(az.from_dict).parameters:
+        return az.from_dict(**groups, save_warmup=save_warmup)
+    return az.from_dict(groups, save_warmup=save_warmup)
+
+
 class StanModel:
     """A Stan program, compiled against a dataset on each `sampling()` call."""
 
@@ -315,8 +358,8 @@ class StanModel:
         chains sequentially through `sampling()` and prints a one-time
         warning, so this never hard-fails just because of an old browser.
         Returns a plain `list[StanFit]` — no combined-array type, no R-hat
-        or other convergence diagnostics; feed the per-chain draws to
-        something like arviz if you want those.
+        or other convergence diagnostics; `to_inference_data(fits)` hands
+        them to ArviZ for those.
         """
         if warmup is None:
             warmup = iter // 2
