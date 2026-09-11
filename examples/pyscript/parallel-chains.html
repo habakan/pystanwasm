@@ -111,7 +111,8 @@ table = pd.DataFrame(
 display(table, target="out", append=True)
 
 # Four chains are what R-hat and ESS need: hand them to ArviZ itself.
-await micropip.install("arviz")
+# jinja2: the HTML table az.summary renders needs it, and ArviZ does not declare it.
+await micropip.install(["arviz", "jinja2"])
 import arviz as az
 
 display("ArviZ summary of the parallel chains:", target="out", append=True)
